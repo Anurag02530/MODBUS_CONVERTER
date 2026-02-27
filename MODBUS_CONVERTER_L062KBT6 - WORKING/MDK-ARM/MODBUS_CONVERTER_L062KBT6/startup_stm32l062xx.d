@@ -1,0 +1,1 @@
+modbus_converter_l062kbt6\startup_stm32l062xx.o: startup_stm32l062xx.s
