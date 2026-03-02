@@ -17,5 +17,6 @@
 void CR95HF_UART_Init(void);   // Initialize LPUART3 for CR95HF
 static void CR95HF_Send(uint8_t *cmd, uint8_t tx, uint8_t rx);  // Send command and start RX
 void CR95HF_Process(void);     // Call repeatedly in main loop to handle state machine
+void Process_Frame(uint8_t *rxBuffer, uint16_t rxLen);
 
 #endif // CR95HF_SIMPLE_H

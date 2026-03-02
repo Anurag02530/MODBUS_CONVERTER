@@ -29,17 +29,21 @@ Project File Date:  02/26/2026
 Build target 'MODBUS_CONVERTER_L062KBT6'
 compiling cr95hf.c...
 Warning: C4008W: splitting LDM/STM has no benefit
-..\Core\Src\cr95hf.c(15): warning:  #550-D: variable "uidLen"  was set but never used
+..\Core\Src\cr95hf.c(677): warning:  #177-D: variable "cmd"  was declared but never referenced
+              uint8_t cmd[] = {0x04,0x07,0xA2,0xFE,0x1E,0x06,0x13,0x84,0x28};
+..\Core\Src\cr95hf.c(699): warning:  #177-D: variable "cmd"  was declared but never referenced
+              uint8_t cmd[] = {0x04,0x07,0xA2,0xFF,0xA5,0x5A,0x29,0x03,0x28};
+..\Core\Src\cr95hf.c(24): warning:  #550-D: variable "uidLen"  was set but never used
   static uint8_t uidLen = 0;
-..\Core\Src\cr95hf.c(22): warning:  #177-D: variable "uart1_expected_len"  was declared but never referenced
+..\Core\Src\cr95hf.c(33): warning:  #177-D: variable "uart1_expected_len"  was declared but never referenced
   static uint16_t uart1_expected_len = 0;
-..\Core\Src\cr95hf.c(23): warning:  #177-D: variable "uart1_frame_ready"  was declared but never referenced
+..\Core\Src\cr95hf.c(34): warning:  #177-D: variable "uart1_frame_ready"  was declared but never referenced
   static uint8_t uart1_frame_ready = 0;
-..\Core\Src\cr95hf.c: 4 warnings, 0 errors
+..\Core\Src\cr95hf.c: 6 warnings, 0 errors
 linking...
-Program Size: Code=13016 RO-data=276 RW-data=36 ZI-data=1644  
+Program Size: Code=13252 RO-data=276 RW-data=56 ZI-data=1640  
 FromELF: creating hex file...
-"MODBUS_CONVERTER_L062KBT6\MODBUS_CONVERTER_L062KBT6.axf" - 0 Error(s), 4 Warning(s).
+"MODBUS_CONVERTER_L062KBT6\MODBUS_CONVERTER_L062KBT6.axf" - 0 Error(s), 6 Warning(s).
 
 <h2>Software Packages used:</h2>
 

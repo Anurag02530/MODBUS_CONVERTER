@@ -1,5 +1,14 @@
 #include <string.h>
 #include "cr95hf.h"
+#include "stdint.h"
+
+#define COMBINATION_1  0
+#define COMBINATION_2  1
+
+uint8_t FE_frame[9]={0x04,0x07,0xA2,0xFE,0x00,0x00,0x2C,0x17,0x28};
+uint8_t FF_frame[9]={0x04,0x07,0xA2,0xFF,0xA5,0x5A,0x01,0x03,0x28};
+
+uint8_t combination_state = COMBINATION_1;   // start with combination 1
 
 UART_HandleTypeDef huart1;   // CR95HF
 extern UART_HandleTypeDef huart2;   // Debug
@@ -15,6 +24,8 @@ static uint8_t uid[10];
 static uint8_t uidLen = 0;
 
 static uint8_t state = 0;
+
+int XX=3;
 
 /* USART1 */
 static uint8_t uart1_rx_buffer[UART1_RX_BUFFER_SIZE];
@@ -58,14 +69,14 @@ void CR95HF_UART_Init(void)
     GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF0_USART1;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     huart1.Instance = USART1;
     huart1.Init.BaudRate   = 57600;
     huart1.Init.WordLength = UART_WORDLENGTH_8B;
-    huart1.Init.StopBits   = UART_STOPBITS_1;
+    huart1.Init.StopBits   = UART_STOPBITS_2;
     huart1.Init.Parity     = UART_PARITY_NONE;
     huart1.Init.Mode       = UART_MODE_TX_RX;
 
@@ -406,7 +417,7 @@ void CR95HF_Process(void)
 						WaitRx(1000);
             DBG_Print("PROTO RX: ");
             DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
-						if(uart1_rx_buffer[0] != 0x87 ){
+						if(uart1_rx_buffer[0] != 0x87 && uart1_rx_buffer[0] != 0x83){
                 DBG_Print("STATE RESET ERROR\r\n");
 								state = 0;
 								break;
@@ -592,7 +603,7 @@ void CR95HF_Process(void)
 						WaitRx(1000);
             DBG_Print("SECTOR SELECT RX: ");
             DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
-						if(uart1_rx_buffer[0] != 0x87 && uart1_rx_buffer[0] != 0x80)
+						if(uart1_rx_buffer[0] != 0x87 )
             {
                 state = 0;
                 break;
@@ -615,8 +626,9 @@ void CR95HF_Process(void)
                 state = 0;
                 break;
             }
-            state = 12;
-						HAL_Delay(1000);
+						state=12;
+            
+						//HAL_Delay(1000);
             break;
 					}						
 						
@@ -635,6 +647,7 @@ void CR95HF_Process(void)
 								state = 0;
 								break;
 						}
+						
             state = 13;
             break;	
 				}	
@@ -659,13 +672,14 @@ void CR95HF_Process(void)
 					}	
 
 
-				case 14:    // PAGE WRITE 
+				case 14:    // PAGE WRITE FE
         {
             uint8_t cmd[] = {0x04,0x07,0xA2,0xFE,0x1E,0x06,0x13,0x84,0x28};
             DBG_Print("14 PAGE WRITE FE\r\n");
-            CR95HF_Send1(cmd,sizeof(cmd),6);
+
+            CR95HF_Send1(FE_frame,sizeof(FE_frame),6);
 						HAL_Delay(40); 
-//            if(!WaitRx(1500)) break;
+           //if(!WaitRx(1500)) break;
 						WaitRx(1000);
             DBG_Print("PAGE WRITE FE RX: ");
             DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
@@ -675,17 +689,18 @@ void CR95HF_Process(void)
                 break;
             }
             state = 15;
+						//HAL_Delay(1000);
             break;
 				}						
 				
 
-				case 15:    // PAGE WRITE 
+				case 15:    // PAGE WRITE FF
         {
             uint8_t cmd[] = {0x04,0x07,0xA2,0xFF,0xA5,0x5A,0x29,0x03,0x28};
             DBG_Print("15 PAGE WRITE FF\r\n");
-            CR95HF_Send1(cmd,sizeof(cmd),6);
+            CR95HF_Send1(FF_frame,sizeof(FF_frame),6);
 						HAL_Delay(40); 
-//            if(!WaitRx(1500)) break;
+            //if(!WaitRx(1500)) break;
 						WaitRx(1000);
             DBG_Print("PAGE WRITE FF RX: ");
             DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
@@ -695,6 +710,7 @@ void CR95HF_Process(void)
                 break;
             }
             state = 16;
+						//HAL_Delay(2000);
             break;
 				}
 	
@@ -702,12 +718,12 @@ void CR95HF_Process(void)
 				case 16:     // STATE RESET
         {
             uint8_t cmd[] = {0x04,0x03,0xC2,0xFF,0x28};
-            DBG_Print("16 STATE=PROTOCOL\r\n");
+            DBG_Print("16 STATE= STATE RESET\r\n");
             CR95HF_Send1(cmd,sizeof(cmd),2);
 						HAL_Delay(40);
 //            if(!WaitRx(1000)) break;
 						WaitRx(1000);
-            DBG_Print("PROTO RX: ");
+            DBG_Print("STATE RESET RX: ");
             DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
 						if(uart1_rx_buffer[0] != 0x90 ){
                 DBG_Print("STATE RESET ERROR\r\n");
@@ -752,19 +768,19 @@ void CR95HF_Process(void)
                 break;
             }
             state = 19;
-						HAL_Delay(1000);
+						//HAL_Delay(1000);
             break;
 					}		
 
 				case 19:     // STATE RESET
         {
             uint8_t cmd[] = {0x04,0x03,0xC2,0xFF,0x28};
-            DBG_Print("19 STATE=PROTOCOL\r\n");
+            DBG_Print("19 STATE=STATE RESET\r\n");
             CR95HF_Send1(cmd,sizeof(cmd),2);
 						HAL_Delay(40);
 //            if(!WaitRx(1000)) break;
 						WaitRx(1000);
-            DBG_Print("PROTO RX: ");
+            DBG_Print("STATE RESET RX: ");
             DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
 						if(uart1_rx_buffer[0] != 0x90 ){
                 DBG_Print("STATE RESET ERROR\r\n");
@@ -802,15 +818,16 @@ void CR95HF_Process(void)
 						HAL_Delay(40); 
 //            if(!WaitRx(1500)) break;
 						WaitRx(1000);
-            DBG_Print("PAGE READ F8 RX: ");
+            DBG_Print("PAGE READ F0-FF RX: ");
             DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
-						if(uart1_rx_buffer[0] != 0x80 && uart1_rx_buffer[0] != 0x80)
+						if(uart1_rx_buffer[0] != 0x80)
             {
                 state = 0;
                 break;
             }
-            state = 11;
-						HAL_Delay(1000);
+						Process_Frame(uart1_rx_buffer, uart1_rx_index);
+            state = 0;
+						HAL_Delay(3000);
             break;
 					}
 				
@@ -840,3 +857,74 @@ void CR95HF_Process(void)
             break;
     }
 }
+
+void Process_Frame(uint8_t *rxBuffer, uint16_t rxLen)
+{
+    uint8_t SS;
+    uint8_t MM;
+
+    
+
+    // Safety check
+    if (rxLen < 12)
+        return;
+
+    // Extract SS and MM (12th and 11th from end)
+    SS = rxBuffer[rxLen - 12];
+    MM = rxBuffer[rxLen - 11];
+
+    // ---------------- FE FRAME ----------------
+    FE_frame[0] = 0x04;
+    FE_frame[1] = 0x07;
+    FE_frame[2] = 0xA2;
+    FE_frame[3] = 0xFE;
+    FE_frame[4] = SS;
+    FE_frame[5] = MM;
+
+    // ---------------- FF FRAME ----------------
+    FF_frame[0] = 0x04;
+    FF_frame[1] = 0x07;
+    FF_frame[2] = 0xA2;
+    FF_frame[3] = 0xFF;
+    FF_frame[4] = 0xA5;
+    FF_frame[5] = 0x5A;
+
+    // Alternate combination
+    if (combination_state == COMBINATION_1)
+    {
+        // FE tail
+        FE_frame[6] = 0xF8;
+        FE_frame[7] = 0x74;
+
+        // FF tail
+        FF_frame[6] = 0x2C;
+        FF_frame[7] = 0x03;
+
+        combination_state = COMBINATION_2;
+    }
+    else
+    {
+        // FE tail
+        FE_frame[6] = 0x13;
+        FE_frame[7] = 0x84;
+
+        // FF tail
+        FF_frame[6] = 0x29;
+        FF_frame[7] = 0x03;
+
+        combination_state = COMBINATION_1;
+    }
+
+    FE_frame[8] = 0x28;
+    FF_frame[8] = 0x28;
+		
+		DBG_Print("Extracted SS MM: ");
+		uint8_t temp[2] = {SS, MM};
+		DBG_PrintHex(temp, 2);
+
+    // Now transmit FE_frame and FF_frame using your existing UART code
+    // HAL_UART_Transmit(&huartX, FE_frame, 9, 100);
+    // HAL_UART_Transmit(&huartX, FF_frame, 9, 100);
+}
+
+
