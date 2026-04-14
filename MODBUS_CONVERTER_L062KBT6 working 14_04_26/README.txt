@@ -1,0 +1,11 @@
+Code By: Anurag
+Dated: 14/04/2026
+THIS CODE STATE MACHINE WORKING PERFECTLY FOR CR95HF NFC READER WITH THE STM32L062KBT6 
+CONNECTIONS ARE :
+USART1 AF0 TX PB6 <-----> TX CR95HF 
+	   RX PB7 <-----> RX CR95HF  
+
+USART2 AF4 TX PA2 <-----> RX MAX3485 DI PIN 1 
+	   RX PA3 <-----> TX MAX3485 DO PIN 4
+
+This Code also have the CRC function and working very well with the meters.
