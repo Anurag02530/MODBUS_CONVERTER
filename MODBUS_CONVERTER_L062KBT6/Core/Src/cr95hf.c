@@ -1,8 +1,53 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : cr95hf.c
+  * @brief          : cr95hf program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+
+
 #include <string.h>
 #include "cr95hf.h"
 #include "stdint.h"
-#include <string.h>
 #include <stdio.h>
+
+//static MeterData_t meter;
+uint16_t second;
+uint16_t minute;
+uint16_t hour;
+uint16_t date;
+uint16_t month;
+uint16_t year;
+uint16_t base_unit;
+double total_volume;
+double forward_volume;
+double reverse_volume;
+float flow;
+float temperature;
+uint32_t serial_no;
+uint8_t modbus_address;
+uint16_t crc;
+
+
+
+uint8_t tx[105]; // full frame
+int A5_5A_Err=0, A5_5A_Err_Count=0;
+
+#define FLASH_ADDR   0x08007C00   // last page (adjust if needed)
+
 
 // Store Meter ID and CRC Init persistently
 static uint32_t saved_meter_id = 0;
@@ -54,6 +99,99 @@ uint8_t uart2_frame_ready = 0;
 static uint8_t rxByte;  // single byte buffer for IT
 uint8_t Debug_rxByte;
 
+void handle_modbus_write(uint8_t *rx)
+{
+    uint8_t slave = rx[0];
+    uint8_t func  = rx[1];
+
+    DBG_Print("Func: ");
+    DBG_PrintHex(&func, 1);
+    DBG_Print("\r\n");
+
+    if (slave != modbus_address && slave != 0x00)
+    {
+        DBG_Print("Wrong Slave Address\r\n");
+        return;
+    }
+
+    // CRC check
+    uint16_t rx_crc = (rx[6] << 8) | rx[7];
+    uint16_t calc_crc = modbus_crc(rx, 6);
+		DBG_Print("Expected CRC: ");
+    char msg[30];
+		sprintf(msg, "CRC calc: 0x%04X\r\n", calc_crc);
+		DBG_Print(msg);
+
+    if (rx_crc != calc_crc)
+    {
+        DBG_Print("CRC Error\r\n");
+        return;
+    }
+
+    if (func == 0x06)
+    {
+        DBG_Print("Function 06\r\n");
+
+        uint16_t reg = (rx[2] << 8) | rx[3];
+        uint16_t val = (rx[4] << 8) | rx[5];
+
+        if (reg == 0x0001)
+        {
+            DBG_Print("Register OK\r\n");
+
+            if (val >= 1 && val <= 247)
+            {
+                DBG_Print("Writing new address\r\n");
+
+                write_modbus_address((uint8_t)val);
+                modbus_address = (uint8_t)val;
+
+                // echo response
+                uint16_t crc = modbus_crc(rx, 6);
+                rx[6] = crc & 0xFF;
+                rx[7] = (crc >> 8);
+
+                HAL_UART_Transmit(&huart1, rx, 8, 100);
+
+                DBG_Print("New Addr Set: ");
+                DBG_PrintHex(&modbus_address, 1);
+                DBG_Print("\r\n");
+            }
+        }
+    }
+}
+
+
+void write_modbus_address(uint8_t addr)
+{
+    HAL_FLASH_Unlock();
+
+    FLASH_EraseInitTypeDef erase;
+    uint32_t page_error;
+
+    erase.TypeErase = FLASH_TYPEERASE_PAGES;
+    erase.PageAddress = FLASH_ADDR;
+    erase.NbPages = 1;
+
+    HAL_FLASHEx_Erase(&erase, &page_error);
+
+    // write full 32-bit word (important!)
+    uint32_t data = addr;
+
+    HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FLASH_ADDR, data);
+
+    HAL_FLASH_Lock();
+}
+
+uint8_t read_modbus_address(void)
+{
+    uint8_t addr = *(uint8_t*)FLASH_ADDR;
+
+    if (addr == 0xFF || addr == 0x00 || addr > 247)
+        return 1;   // default
+
+    return addr;
+}
 
 /* ================= CRC FUNCTIONS ================= */
 
@@ -73,144 +211,358 @@ uint16_t crc16_ccitt(const uint8_t *data, uint8_t len, uint16_t init_val)
                 crc <<= 1;
         }
     }
-//		FE_frame[6] = 0x4E;
-//    FE_frame[7] = 0x92;
+
 		FE_frame[7] = (uint8_t)(crc & 0xFF);        // Low byte
     FE_frame[6] = (uint8_t)((crc>> 8) & 0xFF); // High byte
-		DBG_Print("CRC: ");
-    DBG_PrintHex(FE_frame, 8);
+//		DBG_Print("CRC: ");
+//    DBG_PrintHex(FE_frame, 8);
     return crc;
 }
 
 
-// ====================== MAIN FUNCTION TO INTEGRATE ======================
-/*
- * Function: Prepare_Meter_Command
- * Description: Extracts Meter ID from 80 45 response, calculates CRC init,
- *              computes CRC for command 03 29 5A A5, and builds final frame.
- * 
- * Parameters:
- *   response     : Pointer to received data buffer (starting with 0x80 0x45)
- *   resp_len     : Length of response buffer
- *   final_cmd    : Output buffer (must be at least 6 bytes)
- * 
- * Return:
- *   1 = Success (final_cmd is filled)
- *   0 = Failed (invalid response length)
- */
-uint8_t Prepare_Meter_Command(const uint8_t *response, uint16_t resp_len, uint8_t *final_cmd)
+
+void reverse_buffer(uint8_t *data, uint16_t len)
 {
-    uint32_t meter_id = 0;
-    uint16_t crc_init = 0;
-    uint16_t crc_value = 0;
-
-    // Check minimum length (we need at least byte 44 for Meter ID)
-    if (resp_len < 45) {
-        return 0;                    // Invalid response
+    for (uint16_t i = 0; i < len / 2; i++)
+    {
+        uint8_t temp = data[i];
+        data[i] = data[len - 1 - i];
+        data[len - 1 - i] = temp;
     }
-
-    // Extract Meter ID (bytes 41 to 44) - Big Endian
-    meter_id = ((uint32_t)response[41] << 24) |
-               ((uint32_t)response[42] << 16) |
-               ((uint32_t)response[43] <<  8) |
-                response[44];
-
-    // Step 1: Calculate CRC Initial Value (exact method as in example)
-    uint16_t high = (meter_id >> 16) & 0xFFFF;
-    uint16_t low  = meter_id & 0xFFFF;
-    crc_init = high ^ low;
-
-    // Step 2: Command bytes
-    const uint8_t command[4] = {0x03, 0x29, 0x5A, 0xA5};
-
-    // Step 3: Calculate CRC
-    crc_value = crc16_ccitt(command, 4, crc_init);
-
-    // Step 4: Build final command frame (Low byte first, then High byte)
-    final_cmd[0] = 0x03;
-    final_cmd[1] = 0x29;
-    final_cmd[2] = 0x5A;
-    final_cmd[3] = 0xA5;
-    final_cmd[4] = (uint8_t)(crc_value & 0xFF);        // Low byte
-    final_cmd[5] = (uint8_t)((crc_value >> 8) & 0xFF); // High byte
-
-    return 1;   // Success
 }
 
 
+// ================= CRC =================
+uint16_t modbus_crc(uint8_t *buf, uint16_t len)
+{
+    uint16_t crc = 0xFFFF;
 
+    for (uint16_t pos = 0; pos < len; pos++) {  // chnaged here int to uint16_t
+        crc ^= buf[pos];
+
+        for (int i = 0; i < 8; i++) {
+            if (crc & 1)
+                crc = (crc >> 1) ^ 0xA001;
+            else
+                crc >>= 1;
+        }
+    }
+    return crc;
+}
+
+void build_frame(uint8_t *tx)
+{
+    uint16_t idx = 0;
+    float f;
+	
+		uint8_t addr = read_modbus_address();
+
+		if (addr == 0xFF || addr == 0x00) {
+				addr = 1;  // default Modbus ID
+		}
+
+    // ---- 16-bit (BIG ENDIAN) ----
+    #define PUT_U16(v)  do { tx[idx++] = (v)>>8; tx[idx++] = (v)&0xFF; } while(0)
+
+    // ---- 32-bit (BIG ENDIAN, NO SWAP) ----
+    #define PUT_U32(v) do {                      \
+        uint32_t val = *(uint32_t*)&(v);        \
+        tx[idx++] = (val >> 24) & 0xFF;         \
+        tx[idx++] = (val >> 16) & 0xFF;         \
+        tx[idx++] = (val >> 8)  & 0xFF;         \
+        tx[idx++] = (val >> 0)  & 0xFF;         \
+    } while(0)
+
+    // ---- TIME ----
+    PUT_U16(second);
+    PUT_U16(minute);
+    PUT_U16(hour);
+    PUT_U16(date);
+    PUT_U16(month);
+    PUT_U16(year);
+    PUT_U16(base_unit);
+
+    // ---- DOUBLE ? FLOAT ----
+    f = (float)total_volume;
+    PUT_U32(f);
+
+    f = (float)forward_volume;
+    PUT_U32(f);
+
+    f = (float)reverse_volume;
+    PUT_U32(f);
+
+    // ---- FLOAT ----
+    PUT_U32(flow);
+    PUT_U32(temperature);
+
+    // ---- SERIAL ----
+    PUT_U32(serial_no);
+
+    // ---- DUMMY ----
+    tx[idx++] = 0x00;
+    tx[idx++] = 0x00;
+
+    // ---- PAD TO 100 BYTES ----
+    while (idx < 100)
+        tx[idx++] = 0x00;
+
+    // ---- CRC ----
+    uint16_t crc = modbus_crc(tx, 100);
+
+    tx[idx++] = crc & 0xFF;        // LSB
+    tx[idx++] = (crc >> 8) & 0xFF; // MSB
+
+    DBG_Print("\r\nTX string to modbus: ");
+    DBG_PrintHex(tx, idx);
+}
+
+//// ============== MAIN PACKER ==============
+//void build_frame(uint8_t *tx)
+//{
+//    idx = 0;
+//    // ===== PACK AS-IS (NO CHANGE IN VALUES) =====
+
+//    memcpy(&tx[idx], &second, 2); idx += 2;
+//    memcpy(&tx[idx], &minute, 2); idx += 2;
+//    memcpy(&tx[idx], &hour,   2); idx += 2;
+//    memcpy(&tx[idx], &date,   2); idx += 2;
+//    memcpy(&tx[idx], &month,  2); idx += 2;
+//    memcpy(&tx[idx], &year,   2); idx += 2;
+
+//    memcpy(&tx[idx], &base_unit, 2); idx += 2;
+
+//    memcpy(&tx[idx], &total_volume, 4); idx += 4;
+//    memcpy(&tx[idx], &forward_volume, 4); idx += 4;
+//    memcpy(&tx[idx], &reverse_volume, 4); idx += 4;
+
+//    memcpy(&tx[idx], &flow, 4); idx += 4;
+//    memcpy(&tx[idx], &temperature, 4); idx += 4;
+
+//    memcpy(&tx[idx], &serial_no, 4); idx += 4;
+
+//    // ===== ADD DUMMY AFTER SERIAL =====
+//    tx[idx++] = 0x00;
+//    tx[idx++] = 0x00;
+
+//    // ===== PAD TILL 100 BYTES =====
+//    while (idx < 100) {
+//        tx[idx++] = 0x00;
+//    }
+
+//    // ===== CRC =====
+//    uint16_t crc = modbus_crc(tx, 100);
+
+//    tx[idx++] = crc & 0xFF;        // LSB
+//    tx[idx++] = (crc >> 8) & 0xFF; // MSB
+//		DBG_Print("\r\nTX string to modbus: ");
+//		DBG_PrintHex(tx, idx);
+//		
+//}
 
 /* ================= FAST DEBUG PRINT ================= */
 
-void Parse_UART1_Data(void)
-{
+void Decode_Data(void)
+{	
+//	int idx = 0;
+//	uint8_t tx[105]; // full frame
+	int frame_recieved=0;
+	reverse_buffer(uart1_rx_buffer, uart1_rx_index);
+	
+	DBG_Print("\nReversed data PAGE READ F0-FF RX: ");
+  DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
 	char buf[100];
-    if (uart1_rx_index < 40) // basic safety check
-    {
-        DBG_Print("Invalid data length\r\n");
-        return;
-    }
+	if (uart1_rx_index < 40) // basic safety check
+	{
+			DBG_Print("Invalid data length\r\n");
+			return;
+	}
 
-    double forward_volume = 0;
-    double total_volume = 0;
-    double reverse_volume = 0;
-    float temperature = 0;
-    float flow = 0;
 
-    // ---- Extract values (based on your data order) ----
-    // Adjust offsets if required
 
-    memcpy(&temperature,     &uart1_rx_buffer[24], 4);
-    memcpy(&reverse_volume,  &uart1_rx_buffer[28], 8);
-    memcpy(&total_volume,    &uart1_rx_buffer[36], 8);
-    memcpy(&forward_volume,  &uart1_rx_buffer[44], 8);
-    memcpy(&flow,            &uart1_rx_buffer[52], 4);
+	// ---- Extract values (based on your data order) ----
+	if(uart1_rx_buffer[6] == 0x01){
+		frame_recieved=1;
+		memcpy(&serial_no, &uart1_rx_buffer[14], 4);
+//		serial_no_data = meter.serial_no;
+//		
+		sprintf(buf, "\r\nRaw Serial Bytes: %02X %02X %02X %02X \r\n",
+        uart1_rx_buffer[17],
+        uart1_rx_buffer[16],
+        uart1_rx_buffer[15],
+        uart1_rx_buffer[14]);
+		DBG_Print(buf);
+	}
+	
+	if(uart1_rx_buffer[6] == 0x2C){
+		frame_recieved=1;
+			// ?? Time fields (1 byte ? automatically 0x00ss)
+		second = (uint16_t)uart1_rx_buffer[12];
+		minute = (uint16_t)uart1_rx_buffer[11];
+		hour   = (uint16_t)uart1_rx_buffer[10];
+		date   = (uint16_t)uart1_rx_buffer[9];
+		month  = (uint16_t)uart1_rx_buffer[8];
+		year   = (uint16_t)uart1_rx_buffer[7];
+		
+//		sprintf(buf, "\r\nRaw Time Bytes: %02X %02X %02X %02X %02X %02X\r\n",
+//        uart1_rx_buffer[7],
+//        uart1_rx_buffer[8],
+//        uart1_rx_buffer[9],
+//        uart1_rx_buffer[10],
+//        uart1_rx_buffer[11],
+//        uart1_rx_buffer[12]);
+//		DBG_Print(buf);
+	}
 
-    // ---- Print values ----
-    DBG_Print("------ UART DATA ------\r\n");
+	if(uart1_rx_buffer[6] == 0x29){
+		frame_recieved=1;
+		// Volumes & float values
+		memcpy(&temperature,     &uart1_rx_buffer[42], 4);
+		memcpy(&flow,            &uart1_rx_buffer[38], 4);
+		memcpy(&reverse_volume,  &uart1_rx_buffer[30], 8);
+		memcpy(&forward_volume,  &uart1_rx_buffer[22], 8);
+		memcpy(&total_volume,    &uart1_rx_buffer[14], 8);
 
- // ---- Print Temperature ----
-    sprintf(buf, "Temperature: %.2f\r\n", temperature);
-    DBG_Print(buf);
+		base_unit = (uint16_t)uart1_rx_buffer[13];
 
-    // ---- Print Flow ----
-    sprintf(buf, "Flow       : %.2f\r\n", flow);
-    DBG_Print(buf);
 
-    // ---- Print Volumes ----
-    sprintf(buf, "Forward Vol: %.6lf\r\n", forward_volume);
-    DBG_Print(buf);
 
-    sprintf(buf, "Total Vol  : %.6lf\r\n", total_volume);
-    DBG_Print(buf);
+//		// ---- Print values ----
+//		DBG_Print("------ UART DATA ------\r\n");
+//		
+//		// ---- Print Serial Number ----
+////		sprintf(buf, "Serial No: %08X \r\n",
+////        meter.serial_no);
+////		DBG_Print(buf);
+//		// Serial
+////		sprintf(buf, "Serial No: %02X %02X %02X %02X\r\n",
+////						((uint8_t*)&meter.serial_no)[3],
+////						((uint8_t*)&meter.serial_no)[2],
+////						((uint8_t*)&meter.serial_no)[1],
+////						((uint8_t*)&meter.serial_no)[0]);
+////		DBG_Print(buf);
+////		
+////		uint8_t *p = (uint8_t*)&meter.serial_no;
 
-    sprintf(buf, "Reverse Vol: %.6lf\r\n", reverse_volume);
-    DBG_Print(buf);
+////		sprintf(buf, "Serial No: %02X %02X %02X %02X\r\n",
+////						p[3], p[2], p[1], p[0]);   // MSB first
+////		DBG_Print(buf);
+//		
+//		sprintf(buf, "Serial No	: %08lX\r\n", serial_no);
+//		DBG_Print(buf);
+//		
+//		// ---- Print Time ----
+//		sprintf(buf, "Time       : %02d:%02d:%02d\r\n",
+//						hour, minute, second);
+//		DBG_Print(buf);
 
-    DBG_Print("-----------------------\r\n");
+//		// ---- Print Date ----
+//		sprintf(buf, "Date       : %02d-%02d-20%02d\r\n",
+//						date, month, year);
+//		DBG_Print(buf);
+
+//		// ---- Print Base Unit ----
+//		sprintf(buf, "Base Unit  : %d\r\n", base_unit);
+//		DBG_Print(buf);
+
+//		// ---- Print Temperature ----
+//		sprintf(buf, "Temperature: %.2f\r\n", temperature);
+//		DBG_Print(buf);
+
+//		// ---- Print Flow ----
+//		sprintf(buf, "Flow       : %.2f\r\n", flow);
+//		DBG_Print(buf);
+//		
+
+//		// ---- Print Volumes ----
+//		forward_volume= (float)forward_volume;
+//		sprintf(buf, "Forward Vol: %.6lf\r\n", forward_volume);
+//		DBG_Print(buf);
+//		
+//		total_volume= (float)total_volume;
+//		sprintf(buf, "Total Vol  : %.6lf\r\n", total_volume);
+//		DBG_Print(buf);
+//		
+//		reverse_volume= (float)reverse_volume;
+//		sprintf(buf, "Reverse Vol: %.6lf\r\n", reverse_volume);
+//		DBG_Print(buf);
+
+//		DBG_Print("-----------------------\r\n");
+		}
+	
+	if(frame_recieved==1){
+		// ?? Base unit
+		
+
+
+
+		// ---- Print values ----
+		DBG_Print("------ UART DATA ------\r\n");
+		
+		// ---- Print Serial Number ----
+//		sprintf(buf, "Serial No: %08X \r\n",
+//        meter.serial_no);
+//		DBG_Print(buf);
+		// Serial
+//		sprintf(buf, "Serial No: %02X %02X %02X %02X\r\n",
+//						((uint8_t*)&meter.serial_no)[3],
+//						((uint8_t*)&meter.serial_no)[2],
+//						((uint8_t*)&meter.serial_no)[1],
+//						((uint8_t*)&meter.serial_no)[0]);
+//		DBG_Print(buf);
+//		
+//		uint8_t *p = (uint8_t*)&meter.serial_no;
+
+//		sprintf(buf, "Serial No: %02X %02X %02X %02X\r\n",
+//						p[3], p[2], p[1], p[0]);   // MSB first
+//		DBG_Print(buf);
+		
+		sprintf(buf, "Serial No  : %08lX\r\n", serial_no);
+		DBG_Print(buf);
+		
+		// ---- Print Time ----
+		sprintf(buf, "Time       : %02d:%02d:%02d\r\n",
+						hour, minute, second);
+		DBG_Print(buf);
+
+		// ---- Print Date ----
+		sprintf(buf, "Date       : %02d-%02d-20%02d\r\n",
+						date, month, year);
+		DBG_Print(buf);
+
+		// ---- Print Base Unit ----
+		sprintf(buf, "Base Unit  : %d\r\n", base_unit);
+		DBG_Print(buf);
+
+		// ---- Print Temperature ----
+		sprintf(buf, "Temperature: %.2f\r\n", temperature);
+		DBG_Print(buf);
+
+		// ---- Print Flow ----
+		sprintf(buf, "Flow       : %.2f\r\n", flow);
+		DBG_Print(buf);
+		
+
+		// ---- Print Volumes ----
+		forward_volume= (float)forward_volume;
+		sprintf(buf, "Forward Vol: %.6lf\r\n", forward_volume);
+		DBG_Print(buf);
+		
+		total_volume= (float)total_volume;
+		sprintf(buf, "Total Vol  : %.6lf\r\n", total_volume);
+		DBG_Print(buf);
+		
+		reverse_volume= (float)reverse_volume;
+		sprintf(buf, "Reverse Vol: %.6lf\r\n", reverse_volume);
+		DBG_Print(buf);
+
+		DBG_Print("-----------------------\r\n");
+		frame_recieved=0;
+		build_frame(tx);		//chnged from build_frame(&tx[idx]);
+	}
 }
 
-void Print_Serial_Number(void)
-{
-    char buf[50];
-    char serial[15];
-    char serial_rev[15];
-
-    memcpy(serial, &uart1_rx_buffer[8], 14);
-    serial[14] = '\0';
-
-    for (int i = 0; i < 14; i++)
-    {
-        serial_rev[i] = serial[13 - i];
-    }
-    serial_rev[14] = '\0';
-
-    sprintf(buf, "Serial No (Original): %s\r\n", serial);
-    DBG_Print(buf);
-
-    sprintf(buf, "Serial No (Reverse) : %s\r\n", serial_rev);
-    DBG_Print(buf);
-}
+//
 
 // ================= HEX TO ASCII =================
 // Converts a byte array to ASCII hex string
@@ -305,6 +657,8 @@ void CR95HF_UART_Init(void) {
   huart1.Init.Mode = UART_MODE_TX_RX;
 
   HAL_UART_Init(&huart1);
+	
+	modbus_address = read_modbus_address();
 }
 
 void DEBUG_UART_Init(void) {
@@ -428,7 +782,7 @@ void Read_Meter(void) {
 	mem_offset = 0;
   while (retry != 0 && Read_Done == 0) {
 		
-    
+   
 		if (Read_Done == 1){
 			//DBG_Print("Read done.\r\n\r\n");
 		break;
@@ -687,6 +1041,7 @@ void CR95HF_Process(void) {
         DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
         if (uart1_rx_buffer[0] != 0x55) {
           DBG_Print("ECHO ERROR\r\n");
+					retry--;
           state = 0;
           break;
         }
@@ -854,69 +1209,6 @@ void CR95HF_Process(void) {
         state = 9;
         break;
       }
-
-    case 40:  // PAGE READ
-      {
-        uint8_t cmd[] = { 0x04, 0x04, 0x3A, 0x05, 0x20, 0x28 };
-        DBG_Print("Direct PAGE READ 00-50\r\n");
-        CR95HF_Send1(cmd, sizeof(cmd), 2);
-        HAL_Delay(40);
-        //            if(!WaitRx(1500)) break;
-        WaitRx(1000);
-        DBG_Print("PAGE READ F0-FF RX: ");
-        DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
-        if (uart1_rx_buffer[0] != 0x80) {
-          state = 0;
-          break;
-        }
-        //Process_Frame(uart1_rx_buffer, uart1_rx_index);
-        state = 41;
-        //HAL_Delay(3000);
-        break;
-      }
-
-    case 41:  // PAGE READ
-      {
-        uint8_t cmd[] = { 0x04, 0x04, 0x3A, 0x20, 0x40, 0x28 };
-        DBG_Print("Direct PAGE READ 00-50\r\n");
-        CR95HF_Send1(cmd, sizeof(cmd), 2);
-        HAL_Delay(40);
-        //            if(!WaitRx(1500)) break;
-        WaitRx(1000);
-        DBG_Print("PAGE READ F0-FF RX: ");
-        DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
-        if (uart1_rx_buffer[0] != 0x80) {
-          state = 0;
-          break;
-        }
-        //Process_Frame(uart1_rx_buffer, uart1_rx_index);
-        state = 42;
-        //HAL_Delay(3000);
-        break;
-      }
-
-    case 42:  // PAGE READ
-      {
-        uint8_t cmd[] = { 0x04, 0x04, 0x3A, 0x40, 0x60, 0x28 };
-        DBG_Print("Direct PAGE READ 00-50\r\n");
-        CR95HF_Send1(cmd, sizeof(cmd), 200);
-        HAL_Delay(100);
-        //            if(!WaitRx(1500)) break;
-        WaitRx(5000);
-        DBG_Print("PAGE READ 25-91 RX: ");
-        DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
-        if (uart1_rx_buffer[0] != 0x80) {
-          state = 0;
-          Read_Done = 1;
-          break;
-        }
-        //Process_Frame(uart1_rx_buffer, uart1_rx_index);
-        state = 43;
-        Read_Done = 1;
-
-        //HAL_Delay(3000);
-        break;
-      }
     case 9:  // STATE RESET
       {
         uint8_t cmd[] = { 0x04, 0x03, 0xC2, 0xFF, 0x28 };
@@ -994,7 +1286,13 @@ void CR95HF_Process(void) {
 
     case 13:  // GAURD DELAY
       {
-        uint8_t cmd[] = { 0x04, 0x05, 0x00, 0x00, 0x00, 0x00, 0x28 };
+        uint8_t cmd[] = { 0x04, 0x05, 0x01, 0x00, 0x00, 0x00, 0x28 };
+				if (A5_5A_Err){
+					cmd[2] = 0x01;
+					//A5_5A_Err = 0;
+				}else{
+					cmd[2] = 0x00;
+				}
         //DBG_Print("13 GAURD DELAY\r\n");
         CR95HF_Send1(cmd, sizeof(cmd), 2);
         HAL_Delay(40);
@@ -1128,8 +1426,14 @@ void CR95HF_Process(void) {
       }
 
     case 20:  // GAURD DELAY
-      {
-        uint8_t cmd[] = { 0x04, 0x05, 0x00, 0x00, 0x00, 0x00, 0x28 };
+      {	
+				uint8_t cmd[] = { 0x04, 0x05, 0x00, 0x00, 0x00, 0x00, 0x28 };
+				if (A5_5A_Err){
+					cmd[2] = 0x01;
+					//A5_5A_Err = 0;
+				}else{
+					cmd[2] = 0x00;
+				}
         //DBG_Print("20 GAURD DELAY\r\n");
         CR95HF_Send1(cmd, sizeof(cmd), 2);
         HAL_Delay(40);
@@ -1160,10 +1464,41 @@ void CR95HF_Process(void) {
           state = 0;
           break;
         }
+				
+				if (uart1_rx_buffer[62] == 0xA5  && uart1_rx_buffer[63] == 0x5A ) {
+					DBG_Print("\nCombination 3 reset due to A5 and 5A\n ");
+					combination_state=COMBINATION_3;
+					
+					A5_5A_Err_Count++;
+					if (A5_5A_Err_Count>2){
+						A5_5A_Err=~A5_5A_Err;
+						A5_5A_Err_Count=0;
+					}
+					state = 22;
+					break;
+				}
+				
 				if (uart1_rx_buffer[64] != 0x29  && uart1_rx_buffer[64] != 0x2C && uart1_rx_buffer[64] != 0x01) {
 					DBG_Print("\nCombination 3 reset state 21 __ 7\n ");
 					combination_state=COMBINATION_3;
 				}
+				
+//				if (uart1_rx_buffer[62] == 0xA5  && uart1_rx_buffer[63] == 0x5A ) {
+//					DBG_Print("\nCombination 3 reset due to A5 and 5A\n ");
+//					combination_state=COMBINATION_3;
+//					
+//					A5_5A_Err_Count++;
+//					if (A5_5A_Err_Count>2){
+//						A5_5A_Err=1;
+//					}
+//					
+//				}else{
+//				
+//				}
+				
+				
+				
+				
 //				if (uart1_rx_buffer[64] != 0x29  && uart1_rx_buffer[64] != 0x2C) {
 //					DBG_Print("\nCombination 3 reset state 21__6\n ");
 //					combination_state=COMBINATION_3;
@@ -1173,6 +1508,7 @@ void CR95HF_Process(void) {
 //					combination_state=COMBINATION_3;
 //				}
         Process_Frame(uart1_rx_buffer, uart1_rx_index);
+				Decode_Data();
         state = 22;
         //HAL_Delay(3000);
         break;
@@ -1329,7 +1665,13 @@ void CR95HF_Process(void) {
 
     case 30:  // GAURD DELAY
       {
-        uint8_t cmd[] = { 0x04, 0x05, 0x00, 0x00, 0x00, 0x00, 0x28 };
+        uint8_t cmd[] = { 0x04, 0x05, 0x01, 0x00, 0x00, 0x00, 0x28 };
+				if (A5_5A_Err){
+					cmd[2] = 0x01;
+					//A5_5A_Err = 0;
+				}else{
+					cmd[2] = 0x00;
+				}
         //DBG_Print("30 GAURD DELAY\r\n");
         CR95HF_Send1(cmd, sizeof(cmd), 2);
         HAL_Delay(40);
@@ -1463,7 +1805,13 @@ void CR95HF_Process(void) {
 
     case 37:  // GAURD DELAY
       {
-        uint8_t cmd[] = { 0x04, 0x05, 0x00, 0x00, 0x00, 0x00, 0x28 };
+        uint8_t cmd[] = { 0x04, 0x05, 0x01, 0x00, 0x00, 0x00, 0x28 };
+				if (A5_5A_Err){
+					cmd[2] = 0x01;
+					//A5_5A_Err = 0;
+				}else{
+					cmd[2] = 0x00;
+				}
         //DBG_Print("37 GAURD DELAY\r\n");
         CR95HF_Send1(cmd, sizeof(cmd), 2);
         HAL_Delay(40);
@@ -1493,6 +1841,21 @@ void CR95HF_Process(void) {
           state = 0;
           break;
         }
+				
+				if (uart1_rx_buffer[62] == 0xA5  && uart1_rx_buffer[63] == 0x5A ) {
+					DBG_Print("\nCombination 3 reset due to A5 and 5A\n ");
+					combination_state=COMBINATION_3;
+					
+					A5_5A_Err_Count++;
+					if (A5_5A_Err_Count>2){
+						A5_5A_Err=~A5_5A_Err;
+						A5_5A_Err_Count=0;
+					}
+					state = 39;
+					break;
+					
+				}
+				
 				if (uart1_rx_buffer[64] != 0x29  && uart1_rx_buffer[64] != 0x2C && uart1_rx_buffer[64] != 0x01 ) {
 					DBG_Print("\nCombination 3 reset state 21 __ 7\n ");
 					combination_state=COMBINATION_3;
@@ -1501,6 +1864,8 @@ void CR95HF_Process(void) {
 					combination_state=COMBINATION_1;
 				}
         Process_Frame(uart1_rx_buffer, uart1_rx_index);
+				Decode_Data();
+				
 				//Parse_UART1_Data();
 			//	Print_Serial_Number();
         state = 39;
@@ -1528,34 +1893,118 @@ void CR95HF_Process(void) {
         break;
       }
 
-
-      //				case 12:    // READ PAGE
-      //        {
-      //            uint8_t cmd[] = {0x04,0x04,0x3A,0x0D,0x1B,0x28};
-      //            DBG_Print("STATE=READ PAGE\r\n");
-      //            CR95HF_Send1(cmd,sizeof(cmd),20);
-      //						HAL_Delay(40);
-      //            state = 13;
-      //            break;
-      //        }
-
-      //        case 13:
-      ////            if(!WaitRx(1500)) break;
-      //						WaitRx(1000);
-
-      //            DBG_Print("PAGE RX: ");
-      //            DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
-
-      //            state = 0;
-      //            break;
-
     default:
       state = 40;
       break;
   }
 }
+// Print what was actually read from the tag (useful for checking)
+void Print_Read_Data(void) {
+    DBG_Print("\r\n=== METER READ DATA ===\r\n");
+    DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);   // Last received frame (F0-FF usually)
+    DBG_Print("=======================\r\n");
+    
+    // Optional: Parse basic info if you want
+    // Parse_UART1_Data();        // Uncomment if you want temperature/volume parsing
+    // Print_Serial_Number();     // Uncomment if you want serial number
+}
 
 
+// ====================== MAIN STATE MACHINE (with full debug) ======================
+void CR95HF_Process2(void) {
+    switch (state) {
+        case 0:  // ECHO
+            DBG_Print("STATE 0: ECHO\r\n");
+            CR95HF_Send1((uint8_t*)"\x55", 1, 1);
+            if (!WaitRx(1000) || uart1_rx_buffer[0] != 0x55) {
+                DBG_Print("ECHO ERROR\r\n");
+                state = 0; break;
+            }
+            DBG_Print("ECHO RX: "); DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
+            state = 1;
+            retry--;
+            break;
+
+        case 1:  // Reset + Protocol + Inventory flow
+            DBG_Print("STATE 1: Reset + Protocol Select + Inventory\r\n");
+            CR95HF_Send1((uint8_t*)"\x04\x03\xC2\xFF\x28", 5, 2); WaitRx(1000);
+            CR95HF_Send1((uint8_t*)"\x02\x05\x02\x00\x00\x10\x00", 7, 2); WaitRx(1000);
+            CR95HF_Send1((uint8_t*)"\x04\x02\x26\x07", 4, 7);
+            if (!WaitRx(1000) || uart1_rx_buffer[0] != 0x80) {
+                DBG_Print("REQA Failed\r\n"); state = 0; break;
+            }
+            DBG_Print("REQA OK\r\n");
+            state = 8;
+            break;
+
+        case 8:  // Get Version
+            DBG_Print("STATE 8: GET VERSION\r\n");
+            CR95HF_Send1((uint8_t*)"\x04\x02\x60\x28", 4, 15);
+            if (!WaitRx(1000) || uart1_rx_buffer[0] != 0x80) {
+                DBG_Print("GET VERSION Failed\r\n"); state = 0; break;
+            }
+            DBG_Print("GET VERSION RX: "); DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
+            state = 10;
+            break;
+
+        case 10: // Sector Select
+            DBG_Print("STATE 10: SECTOR SELECT\r\n");
+            CR95HF_Send1((uint8_t*)"\x04\x05\x03\x00\x00\x00\x28", 7, 2); WaitRx(1000);
+            state = 11;
+            break;
+
+        case 11:
+            DBG_Print("STATE 11: PAGE READ F8\r\n");
+            CR95HF_Send1((uint8_t*)"\x04\x03\x30\xF8\x28", 5, 2); WaitRx(1000);
+            DBG_Print("F8 RX: "); DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
+            state = 12;
+            break;
+
+        case 12: // Guard Delay
+            DBG_Print("STATE 12: GUARD DELAY\r\n");
+            CR95HF_Send1((uint8_t*)"\x04\x05\x00\x00\x00\x00\x28", 7, 2); WaitRx(1000);
+            state = 14;
+            break;
+
+        case 14: // Write FE
+            DBG_Print("STATE 14: PAGE WRITE FE\r\n");
+            Process_Frame(uart1_rx_buffer, uart1_rx_index);
+            CR95HF_Send1(FE_frame, 9, 6);
+            WaitRx(1000);
+            DBG_Print("WRITE FE RX: "); DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
+            state = 15;
+            break;
+
+        case 15: // Write FF
+            DBG_Print("STATE 15: PAGE WRITE FF\r\n");
+            CR95HF_Send1(FF_frame, 9, 6);
+            WaitRx(1000);
+            DBG_Print("WRITE FF RX: "); DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
+            state = 16;
+            break;
+
+        case 16: // Final Read F0-FF + Done
+            DBG_Print("STATE 16: FINAL RESET + READ F0-FF\r\n");
+            CR95HF_Send1((uint8_t*)"\x04\x03\xC2\xFF\x28", 5, 2); WaitRx(1000);
+            CR95HF_Send1((uint8_t*)"\x04\x04\x3A\xF0\xFF\x28", 6, 200);   // large enough buffer
+            if (WaitRx(2000) && uart1_rx_buffer[0] == 0x80) {
+                DBG_Print("FINAL READ F0-FF SUCCESS\r\n");
+                DBG_Print("FINAL READ RX: "); DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
+                Process_Frame(uart1_rx_buffer, uart1_rx_index);
+                Print_Read_Data();          // <--- This shows you exactly what was read
+                Read_Done = 1;
+                state = 0;
+                return;
+            }
+            DBG_Print("FINAL READ Failed\r\n");
+            state = 0;
+            break;
+
+        default:
+            state = 0;
+            break;
+    }
+	}
 
 
 
@@ -1864,13 +2313,11 @@ void CR95HF_Read_Memory(void) {
 
 
 
+
 void Process_Frame(uint8_t *rxBuffer, uint16_t rxLen) {
   uint8_t SS=0;
   uint8_t MM=0;
 
-///*143587374f
-//	kulk
-	
 
   // Safety check
   if (rxLen < 12)
@@ -1895,57 +2342,7 @@ void Process_Frame(uint8_t *rxBuffer, uint16_t rxLen) {
   FF_frame[3] = 0xFF;
   FF_frame[4] = 0xA5;
   FF_frame[5] = 0x5A;
-	
 
-
-//  // Alternate combination
-//  if (memcmp(&rxBuffer[3], targetSeq, 14) != 0) {
-//    SS = rxBuffer[rxLen - 12];
-//    MM = rxBuffer[rxLen - 11];
-//    FE_frame[4] = SS;
-//    FE_frame[5] = MM;
-
-//    if (combination_state == COMBINATION_1) {
-
-//      // FE tail
-//      FE_frame[6] = 0xF8;
-//      FE_frame[7] = 0x74;
-
-//      // FF tail
-//      FF_frame[6] = 0x2C;
-//      FF_frame[7] = 0x03;
-
-//      combination_state = COMBINATION_2;
-//    } else if (combination_state == COMBINATION_2){
-
-//      // FE tail
-//      FE_frame[6] = 0x13;
-//      FE_frame[7] = 0x84;
-
-//      // FF tail
-//      FF_frame[6] = 0x29;
-//      FF_frame[7] = 0x03;
-
-//      combination_state = COMBINATION_1;
-//    } else if (combination_state == COMBINATION_3) {
-
-//      // FE tail
-//			FE_frame[4] = 0x00;
-//			FE_frame[5] = 0x00;
-//      FE_frame[6] = 0x2C;
-//      FE_frame[7] = 0x17;
-
-//      // FF tail
-//      FF_frame[6] = 0x01;
-//      FF_frame[7] = 0x03;
-
-//      combination_state = COMBINATION_1;
-//    }
-//  } else {
-//    SS = rxBuffer[rxLen - 12];
-//    MM = rxBuffer[rxLen - 11];
-//    FE_frame[4] = SS;
-//    FE_frame[5] = MM;
 
 if (combination_state == COMBINATION_3) {
 

@@ -1,7 +1,7 @@
 Dependencies for Project 'MODBUS_CONVERTER_L062KBT6', Target 'MODBUS_CONVERTER_L062KBT6': (DO NOT MODIFY !)
 CompilerVersion: 5060750::V5.06 update 6 (build 750)::ARMCC
 F (startup_stm32l062xx.s)(0x6996BF48)(--cpu Cortex-M0+ --pd "__EVAL SETA 1" -g --apcs=interwork --pd "__MICROLIB SETA 1"-I.\RTE\_MODBUS_CONVERTER_L062KBT6-IC:\Users\Anurag\AppData\Local\Arm\Packs\ARM\CMSIS\6.2.0_backup\CMSIS\Core\Include--pd "__UVISION_VERSION SETA 529" --pd "_RTE_ SETA 1" --pd "STM32L062xx SETA 1"--list startup_stm32l062xx.lst --xref -o modbus_converter_l062kbt6\startup_stm32l062xx.o --depend modbus_converter_l062kbt6\startup_stm32l062xx.d)
-F (../Core/Src/main.c)(0x69A6BB67)(--c99 -c --cpu Cortex-M0+ -D__EVAL -D__MICROLIB -g -O0 -Otime --apcs=interwork --split_ldm --split_sections -I ../Core/Inc -I ../Drivers/STM32L0xx_HAL_Driver/Inc -I ../Drivers/STM32L0xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32L0xx/Include -I ../Drivers/CMSIS/Include-I.\RTE\_MODBUS_CONVERTER_L062KBT6-IC:\Users\Anurag\AppData\Local\Arm\Packs\ARM\CMSIS\6.2.0_backup\CMSIS\Core\Include-D__UVISION_VERSION="529" -D_RTE_ -DSTM32L062xx -DUSE_HAL_DRIVER -DSTM32L062xx-o modbus_converter_l062kbt6\main.o --omf_browse modbus_converter_l062kbt6\main.crf --depend modbus_converter_l062kbt6\main.d)
+F (../Core/Src/main.c)(0x69E8A575)(--c99 -c --cpu Cortex-M0+ -D__EVAL -D__MICROLIB -g -O0 -Otime --apcs=interwork --split_ldm --split_sections -I ../Core/Inc -I ../Drivers/STM32L0xx_HAL_Driver/Inc -I ../Drivers/STM32L0xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32L0xx/Include -I ../Drivers/CMSIS/Include-I.\RTE\_MODBUS_CONVERTER_L062KBT6-IC:\Users\Anurag\AppData\Local\Arm\Packs\ARM\CMSIS\6.2.0_backup\CMSIS\Core\Include-D__UVISION_VERSION="529" -D_RTE_ -DSTM32L062xx -DUSE_HAL_DRIVER -DSTM32L062xx-o modbus_converter_l062kbt6\main.o --omf_browse modbus_converter_l062kbt6\main.crf --depend modbus_converter_l062kbt6\main.d)
 I (../Core/Inc/main.h)(0x6996BF46)
 I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal.h)(0x6996BF3C)
 I (../Core/Inc/stm32l0xx_hal_conf.h)(0x6996BF45)
@@ -31,7 +31,7 @@ I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal_pwr.h)(0x6996BF3C)
 I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal_pwr_ex.h)(0x6996BF3C)
 I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal_uart.h)(0x6996BF3C)
 I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal_uart_ex.h)(0x6996BF3C)
-I (../Core/Inc/cr95hf.h)(0x69BA9F85)
+I (../Core/Inc/cr95hf.h)(0x69E89D51)
 I (../Core/Inc/uart.h)(0x69A588CA)
 I (../Core/Inc/modbus.h)(0x699705CF)
 I (C:\Keil_v5\ARM\ARMCC\include\stdio.h)(0x5D9AF542)
@@ -131,9 +131,9 @@ I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal_pwr_ex.h)(0x6996BF3C)
 I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal_uart.h)(0x6996BF3C)
 I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal_uart_ex.h)(0x6996BF3C)
 I (C:\Keil_v5\ARM\ARMCC\include\string.h)(0x5D9AF540)
-F (..\Core\Src\cr95hf.c)(0x69DCE8DF)(--c99 -c --cpu Cortex-M0+ -D__EVAL -D__MICROLIB -g -O0 -Otime --apcs=interwork --split_ldm --split_sections -I ../Core/Inc -I ../Drivers/STM32L0xx_HAL_Driver/Inc -I ../Drivers/STM32L0xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32L0xx/Include -I ../Drivers/CMSIS/Include-I.\RTE\_MODBUS_CONVERTER_L062KBT6-IC:\Users\Anurag\AppData\Local\Arm\Packs\ARM\CMSIS\6.2.0_backup\CMSIS\Core\Include-D__UVISION_VERSION="529" -D_RTE_ -DSTM32L062xx -DUSE_HAL_DRIVER -DSTM32L062xx-o modbus_converter_l062kbt6\cr95hf.o --omf_browse modbus_converter_l062kbt6\cr95hf.crf --depend modbus_converter_l062kbt6\cr95hf.d)
+F (..\Core\Src\cr95hf.c)(0x69E8AB3C)(--c99 -c --cpu Cortex-M0+ -D__EVAL -D__MICROLIB -g -O0 -Otime --apcs=interwork --split_ldm --split_sections -I ../Core/Inc -I ../Drivers/STM32L0xx_HAL_Driver/Inc -I ../Drivers/STM32L0xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32L0xx/Include -I ../Drivers/CMSIS/Include-I.\RTE\_MODBUS_CONVERTER_L062KBT6-IC:\Users\Anurag\AppData\Local\Arm\Packs\ARM\CMSIS\6.2.0_backup\CMSIS\Core\Include-D__UVISION_VERSION="529" -D_RTE_ -DSTM32L062xx -DUSE_HAL_DRIVER -DSTM32L062xx-o modbus_converter_l062kbt6\cr95hf.o --omf_browse modbus_converter_l062kbt6\cr95hf.crf --depend modbus_converter_l062kbt6\cr95hf.d)
 I (C:\Keil_v5\ARM\ARMCC\include\string.h)(0x5D9AF540)
-I (../Core/Inc/cr95hf.h)(0x69BA9F85)
+I (../Core/Inc/cr95hf.h)(0x69E89D51)
 I (../Core/Inc/main.h)(0x6996BF46)
 I (../Drivers/STM32L0xx_HAL_Driver/Inc/stm32l0xx_hal.h)(0x6996BF3C)
 I (../Core/Inc/stm32l0xx_hal_conf.h)(0x6996BF45)

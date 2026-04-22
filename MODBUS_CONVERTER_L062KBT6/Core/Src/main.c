@@ -34,6 +34,8 @@ extern uint8_t uart2_rx_buffer[UART2_RX_BUFFER_SIZE];
 extern uint16_t uart2_rx_index;
 extern uint8_t Debug_rxByte; 
 
+extern uint8_t modbus_address;
+
 /**
   * @brief  The application entry point.
   * @retval int
@@ -48,7 +50,9 @@ int main(void)
 	
 		HAL_Delay(100);
 		//HAL_UART_Receive_IT(&huart2, &Debug_rxByte, 1);
-		
+		DBG_Print("Slave address: ");
+		uint8_t add = read_modbus_address();
+		DBG_PrintHex(&add, 1);
 	
 		/* ================= CR95HF INIT SEQUENCE ================= */
 		Read_Meter();
@@ -66,6 +70,15 @@ int main(void)
 						DBG_Print("DEBUG RX: ");
 						DBG_PrintHex(uart2_rx_buffer, uart2_rx_index);
 
+						if(uart2_rx_buffer[1]== 0x06){
+							handle_modbus_write(uart2_rx_buffer);
+							DBG_Print("Slave Address Changed new: ");
+							uint8_t add = read_modbus_address();
+							DBG_PrintHex(&add, 1);
+						}else{
+							uart2_rx_index = 0;   // reset AFTER processing
+							Read_Meter();
+						}
 						uart2_rx_index = 0;   // reset AFTER processing
 						//CR95HF_Process();
 						Read_Meter();
