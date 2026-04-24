@@ -3,7 +3,7 @@
 <title>Static Call Graph - [MODBUS_CONVERTER_L062KBT6\MODBUS_CONVERTER_L062KBT6.axf]</title></head>
 <body><HR>
 <H1>Static Call Graph for image MODBUS_CONVERTER_L062KBT6\MODBUS_CONVERTER_L062KBT6.axf</H1><HR>
-<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060750: Last Updated: Wed Apr 22 16:34:29 2026
+<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060750: Last Updated: Fri Apr 24 11:20:42 2026
 <BR><P>
 <H3>Maximum Stack Usage =        368 bytes + Unknown(Cycles, Untraceable Function Pointers)</H3><H3>
 Call chain for Maximum Stack Depth:</H3>
@@ -342,7 +342,7 @@ Global Symbols
 <LI><a href="#[31]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_dadd
 </UL>
 
-<P><STRONG><a name="[3c]"></a>CR95HF_Process</STRONG> (Thumb, 4322 bytes, Stack size 16 bytes, cr95hf.o(i.CR95HF_Process))
+<P><STRONG><a name="[3c]"></a>CR95HF_Process</STRONG> (Thumb, 4366 bytes, Stack size 16 bytes, cr95hf.o(i.CR95HF_Process))
 <BR><BR>[Stack]<UL><LI>Max Depth = 312<LI>Call Chain = CR95HF_Process &rArr; Decode_Data &rArr; build_frame &rArr; DBG_PrintHex &rArr; DBG_Print &rArr; HAL_UART_Transmit &rArr; UART_WaitOnFlagUntilTimeout &rArr; UART_EndRxTransfer
 </UL>
 <BR>[Calls]<UL><LI><a href="#[43]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;Process_Frame
@@ -375,6 +375,7 @@ Global Symbols
 <LI><a href="#[4d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;strlen
 </UL>
 <BR>[Called By]<UL><LI><a href="#[55]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;build_frame
+<LI><a href="#[43]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;Process_Frame
 <LI><a href="#[44]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;Decode_Data
 <LI><a href="#[3c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;CR95HF_Process
 <LI><a href="#[87]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;handle_modbus_write
@@ -410,7 +411,7 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[20]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[44]"></a>Decode_Data</STRONG> (Thumb, 528 bytes, Stack size 128 bytes, cr95hf.o(i.Decode_Data))
+<P><STRONG><a name="[44]"></a>Decode_Data</STRONG> (Thumb, 582 bytes, Stack size 128 bytes, cr95hf.o(i.Decode_Data))
 <BR><BR>[Stack]<UL><LI>Max Depth = 296<LI>Call Chain = Decode_Data &rArr; build_frame &rArr; DBG_PrintHex &rArr; DBG_Print &rArr; HAL_UART_Transmit &rArr; UART_WaitOnFlagUntilTimeout &rArr; UART_EndRxTransfer
 </UL>
 <BR>[Calls]<UL><LI><a href="#[54]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_f2d
@@ -724,10 +725,11 @@ Global Symbols
 <P><STRONG><a name="[4]"></a>PendSV_Handler</STRONG> (Thumb, 2 bytes, Stack size 0 bytes, stm32l0xx_it.o(i.PendSV_Handler))
 <BR>[Address Reference Count : 1]<UL><LI> startup_stm32l062xx.o(RESET)
 </UL>
-<P><STRONG><a name="[43]"></a>Process_Frame</STRONG> (Thumb, 344 bytes, Stack size 28 bytes, cr95hf.o(i.Process_Frame))
-<BR><BR>[Stack]<UL><LI>Max Depth = 52<LI>Call Chain = Process_Frame &rArr; crc16_ccitt
+<P><STRONG><a name="[43]"></a>Process_Frame</STRONG> (Thumb, 360 bytes, Stack size 32 bytes, cr95hf.o(i.Process_Frame))
+<BR><BR>[Stack]<UL><LI>Max Depth = 152<LI>Call Chain = Process_Frame &rArr; DBG_Print &rArr; HAL_UART_Transmit &rArr; UART_WaitOnFlagUntilTimeout &rArr; UART_EndRxTransfer
 </UL>
 <BR>[Calls]<UL><LI><a href="#[79]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;crc16_ccitt
+<LI><a href="#[3d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;DBG_Print
 </UL>
 <BR>[Called By]<UL><LI><a href="#[3c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;CR95HF_Process
 </UL>

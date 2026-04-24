@@ -214,8 +214,6 @@ uint16_t crc16_ccitt(const uint8_t *data, uint8_t len, uint16_t init_val)
 
 		FE_frame[7] = (uint8_t)(crc & 0xFF);        // Low byte
     FE_frame[6] = (uint8_t)((crc>> 8) & 0xFF); // High byte
-//		DBG_Print("CRC: ");
-//    DBG_PrintHex(FE_frame, 8);
     return crc;
 }
 
@@ -317,55 +315,10 @@ void build_frame(uint8_t *tx)
     DBG_PrintHex(tx, idx);
 }
 
-//// ============== MAIN PACKER ==============
-//void build_frame(uint8_t *tx)
-//{
-//    idx = 0;
-//    // ===== PACK AS-IS (NO CHANGE IN VALUES) =====
-
-//    memcpy(&tx[idx], &second, 2); idx += 2;
-//    memcpy(&tx[idx], &minute, 2); idx += 2;
-//    memcpy(&tx[idx], &hour,   2); idx += 2;
-//    memcpy(&tx[idx], &date,   2); idx += 2;
-//    memcpy(&tx[idx], &month,  2); idx += 2;
-//    memcpy(&tx[idx], &year,   2); idx += 2;
-
-//    memcpy(&tx[idx], &base_unit, 2); idx += 2;
-
-//    memcpy(&tx[idx], &total_volume, 4); idx += 4;
-//    memcpy(&tx[idx], &forward_volume, 4); idx += 4;
-//    memcpy(&tx[idx], &reverse_volume, 4); idx += 4;
-
-//    memcpy(&tx[idx], &flow, 4); idx += 4;
-//    memcpy(&tx[idx], &temperature, 4); idx += 4;
-
-//    memcpy(&tx[idx], &serial_no, 4); idx += 4;
-
-//    // ===== ADD DUMMY AFTER SERIAL =====
-//    tx[idx++] = 0x00;
-//    tx[idx++] = 0x00;
-
-//    // ===== PAD TILL 100 BYTES =====
-//    while (idx < 100) {
-//        tx[idx++] = 0x00;
-//    }
-
-//    // ===== CRC =====
-//    uint16_t crc = modbus_crc(tx, 100);
-
-//    tx[idx++] = crc & 0xFF;        // LSB
-//    tx[idx++] = (crc >> 8) & 0xFF; // MSB
-//		DBG_Print("\r\nTX string to modbus: ");
-//		DBG_PrintHex(tx, idx);
-//		
-//}
-
 /* ================= FAST DEBUG PRINT ================= */
 
 void Decode_Data(void)
 {	
-//	int idx = 0;
-//	uint8_t tx[105]; // full frame
 	int frame_recieved=0;
 	reverse_buffer(uart1_rx_buffer, uart1_rx_index);
 	
@@ -383,6 +336,7 @@ void Decode_Data(void)
 	// ---- Extract values (based on your data order) ----
 	if(uart1_rx_buffer[6] == 0x01){
 		frame_recieved=1;
+		//Read_Done = 1;
 		memcpy(&serial_no, &uart1_rx_buffer[14], 4);
 //		serial_no_data = meter.serial_no;
 //		
@@ -416,6 +370,14 @@ void Decode_Data(void)
 
 	if(uart1_rx_buffer[6] == 0x29){
 		frame_recieved=1;
+		Read_Done = 1;
+		// Time fields (1 byte : automatically 0x00ss)
+		second = (uint16_t)uart1_rx_buffer[12];
+		minute = (uint16_t)uart1_rx_buffer[11];
+		hour   = (uint16_t)uart1_rx_buffer[10];
+		date   = (uint16_t)uart1_rx_buffer[9];
+		month  = (uint16_t)uart1_rx_buffer[8];
+		year   = (uint16_t)uart1_rx_buffer[7];
 		// Volumes & float values
 		memcpy(&temperature,     &uart1_rx_buffer[42], 4);
 		memcpy(&flow,            &uart1_rx_buffer[38], 4);
@@ -1468,9 +1430,9 @@ void CR95HF_Process(void) {
 				if (uart1_rx_buffer[62] == 0xA5  && uart1_rx_buffer[63] == 0x5A ) {
 					DBG_Print("\nCombination 3 reset due to A5 and 5A\n ");
 					combination_state=COMBINATION_3;
-					
 					A5_5A_Err_Count++;
-					if (A5_5A_Err_Count>2){
+					Process_Frame(uart1_rx_buffer, uart1_rx_index);
+					if (A5_5A_Err_Count>=2){
 						A5_5A_Err=~A5_5A_Err;
 						A5_5A_Err_Count=0;
 					}
@@ -1481,6 +1443,7 @@ void CR95HF_Process(void) {
 				if (uart1_rx_buffer[64] != 0x29  && uart1_rx_buffer[64] != 0x2C && uart1_rx_buffer[64] != 0x01) {
 					DBG_Print("\nCombination 3 reset state 21 __ 7\n ");
 					combination_state=COMBINATION_3;
+					Process_Frame(uart1_rx_buffer, uart1_rx_index);
 				}
 				
 //				if (uart1_rx_buffer[62] == 0xA5  && uart1_rx_buffer[63] == 0x5A ) {
@@ -1507,6 +1470,7 @@ void CR95HF_Process(void) {
 //					DBG_Print("\nCombination 3 reset state 21__5\n ");
 //					combination_state=COMBINATION_3;
 //				}
+				//combination_state=COMBINATION_2;
         Process_Frame(uart1_rx_buffer, uart1_rx_index);
 				Decode_Data();
         state = 22;
@@ -1834,7 +1798,7 @@ void CR95HF_Process(void) {
         CR95HF_Send1(cmd, sizeof(cmd), 2);
         HAL_Delay(40);
         //            if(!WaitRx(1500)) break;
-        WaitRx(1000);
+        WaitRx(100);
         DBG_Print("PAGE READ F0-FF RX: ");
         DBG_PrintHex(uart1_rx_buffer, uart1_rx_index);
         if (uart1_rx_buffer[0] != 0x80) {
@@ -1845,9 +1809,9 @@ void CR95HF_Process(void) {
 				if (uart1_rx_buffer[62] == 0xA5  && uart1_rx_buffer[63] == 0x5A ) {
 					DBG_Print("\nCombination 3 reset due to A5 and 5A\n ");
 					combination_state=COMBINATION_3;
-					
 					A5_5A_Err_Count++;
-					if (A5_5A_Err_Count>2){
+					Process_Frame(uart1_rx_buffer, uart1_rx_index);
+					if (A5_5A_Err_Count>=2){
 						A5_5A_Err=~A5_5A_Err;
 						A5_5A_Err_Count=0;
 					}
@@ -1859,17 +1823,13 @@ void CR95HF_Process(void) {
 				if (uart1_rx_buffer[64] != 0x29  && uart1_rx_buffer[64] != 0x2C && uart1_rx_buffer[64] != 0x01 ) {
 					DBG_Print("\nCombination 3 reset state 21 __ 7\n ");
 					combination_state=COMBINATION_3;
-					
-				}else {
-					combination_state=COMBINATION_1;
+					Process_Frame(uart1_rx_buffer, uart1_rx_index);
+					state = 39;
+					break;
 				}
         Process_Frame(uart1_rx_buffer, uart1_rx_index);
 				Decode_Data();
-				
-				//Parse_UART1_Data();
-			//	Print_Serial_Number();
         state = 39;
-        //HAL_Delay(3000);
         break;
       }
     case 39:  // PROTOCOL SELECT
@@ -2342,9 +2302,34 @@ void Process_Frame(uint8_t *rxBuffer, uint16_t rxLen) {
   FF_frame[3] = 0xFF;
   FF_frame[4] = 0xA5;
   FF_frame[5] = 0x5A;
+	
+	
+	// ====================== TRY TO EXTRACT METER ID (Only when available) ======================
+	if (rxLen >= 45 && uart1_rx_buffer[64] == 0x01 && A5_5A_Err_Count == 0)
+	{
+		combination_state = COMBINATION_2;
+		uint32_t meter_id = ((uint32_t)rxBuffer[41] << 24) |
+												((uint32_t)rxBuffer[42] << 16) |
+												((uint32_t)rxBuffer[43] <<  8) |
+												 rxBuffer[44];
+
+		// If we got a valid new Meter ID, save it and calculate CRC init
+		if (meter_id != 0 && meter_id != saved_meter_id)
+		{
+				saved_meter_id = meter_id;
+				uint16_t high = (meter_id >> 16) & 0xFFFF;
+				uint16_t low  = meter_id & 0xFFFF;
+				saved_crc_init = high ^ low;
+
+				// Optional: Print for debugging
+				// printf("Meter ID saved: 0x%08X, CRC Init: 0x%04X\n", saved_meter_id, saved_crc_init);
+		}
+		//return;
+	}
 
 
 if (combination_state == COMBINATION_3) {
+	DBG_Print("\r\n Combination 3 \r\n");
 
       // FE tail
 			FE_frame[4] = 0x00;
@@ -2357,37 +2342,13 @@ if (combination_state == COMBINATION_3) {
       FF_frame[6] = 0x01;
       FF_frame[7] = 0x03;
 			FE_frame[8] = 0x28;
+			//combination_state = COMBINATION_2;
+			return;
 
     }
 
-// ====================== TRY TO EXTRACT METER ID (Only when available) ======================
-    if (rxLen >= 45 && combination_state == COMBINATION_3)
-    {
-			combination_state = COMBINATION_1;
-			uint32_t meter_id = ((uint32_t)rxBuffer[41] << 24) |
-													((uint32_t)rxBuffer[42] << 16) |
-													((uint32_t)rxBuffer[43] <<  8) |
-													 rxBuffer[44];
-
-			// If we got a valid new Meter ID, save it and calculate CRC init
-			if (meter_id != 0 && meter_id != saved_meter_id)
-			{
-					saved_meter_id = meter_id;
-					uint16_t high = (meter_id >> 16) & 0xFFFF;
-					uint16_t low  = meter_id & 0xFFFF;
-					saved_crc_init = high ^ low;
-
-					// Optional: Print for debugging
-					// printf("Meter ID saved: 0x%08X, CRC Init: 0x%04X\n", saved_meter_id, saved_crc_init);
-			}
-			return;
-	}
-		
-		
-		
-		
-
     if (combination_state == COMBINATION_1) {
+			DBG_Print("\r\n Combination 1 \r\n");
       // FE tail
 //      FE_frame[6] = 0x4E;
 //      FE_frame[7] = 0x92;
@@ -2400,8 +2361,9 @@ if (combination_state == COMBINATION_3) {
     // Calculate CRC
 			uint16_t crc_value = crc16_ccitt(command, 4, saved_crc_init);
 
-      combination_state = COMBINATION_2;
+      //combination_state = COMBINATION_2;
     } else if (combination_state == COMBINATION_2){
+			DBG_Print("\r\n Combination 2 \r\n");
       // FE tail
 //      FE_frame[6] = 0xA5;
 //      FE_frame[7] = 0x62;
@@ -2415,7 +2377,7 @@ if (combination_state == COMBINATION_3) {
     // Calculate CRC
 			uint16_t crc_value = crc16_ccitt(command, 4, saved_crc_init);
 
-      combination_state = COMBINATION_1;
+     // combination_state = COMBINATION_1;
     }
 
 
