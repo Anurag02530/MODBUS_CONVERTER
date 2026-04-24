@@ -1438,6 +1438,8 @@ void CR95HF_Process(void) {
 					}
 					state = 22;
 					break;
+				}else{
+					A5_5A_Err_Count=0;
 				}
 				
 				if (uart1_rx_buffer[64] != 0x29  && uart1_rx_buffer[64] != 0x2C && uart1_rx_buffer[64] != 0x01) {
@@ -1818,6 +1820,8 @@ void CR95HF_Process(void) {
 					state = 39;
 					break;
 					
+				}else{
+					A5_5A_Err_Count=0;
 				}
 				
 				if (uart1_rx_buffer[64] != 0x29  && uart1_rx_buffer[64] != 0x2C && uart1_rx_buffer[64] != 0x01 ) {
@@ -2308,6 +2312,7 @@ void Process_Frame(uint8_t *rxBuffer, uint16_t rxLen) {
 	if (rxLen >= 45 && uart1_rx_buffer[64] == 0x01 && A5_5A_Err_Count == 0)
 	{
 		combination_state = COMBINATION_2;
+		
 		uint32_t meter_id = ((uint32_t)rxBuffer[41] << 24) |
 												((uint32_t)rxBuffer[42] << 16) |
 												((uint32_t)rxBuffer[43] <<  8) |
